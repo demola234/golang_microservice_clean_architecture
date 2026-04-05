@@ -219,7 +219,7 @@ func (r *UserRepository) CreateUser(ctx context.Context, user *entity.User) erro
 		if strings.Contains(user.Email, "@") {
 			username = user.Email[:strings.Index(user.Email, "@")]
 		} else {
-			username = user.Email // Fallback if email format is invalid
+			username = user.Email
 		}
 	}
 
@@ -350,6 +350,7 @@ func (r *UserRepository) CreateSession(ctx context.Context, session *entity.Sess
 		UserAgent:    sql.NullString{String: session.UserAgent, Valid: session.UserAgent != ""},
 		IsActive:     session.IsActive,
 		RevokedAt:    revokedAt,
+		DeviceInfo:   pqtype.NullRawMessage{},
 	})
 	if err != nil {
 		return err
@@ -358,11 +359,13 @@ func (r *UserRepository) CreateSession(ctx context.Context, session *entity.Sess
 	_, err = r.store.CreateEmailVerification(
 		ctx,
 		db.CreateEmailVerificationParams{
+			ID:           uuid.New(),
 			UserID:       session.UserID,
 			OtpVerified:  sql.NullBool{Bool: session.OTPVerified, Valid: true},
 			OtpExpiresAt: sql.NullTime{Time: session.OtpExpiresAt, Valid: true},
 			Otp:          sql.NullString{String: session.Otp, Valid: session.Otp != ""},
 			OtpAttempts:  sql.NullInt32{Int32: int32(session.OtpAttempts), Valid: true},
+			ExpiresAt:    session.OtpExpiresAt,
 		},
 	)
 
@@ -417,14 +420,11 @@ func (r *UserRepository) UpdateOtp(ctx context.Context, userOtp *entity.UpdateOt
 		return err
 	}
 
-	// Call UpdateOtp with the mapped parameters
-	_, err = r.store.CreateEmailVerification(ctx, db.CreateEmailVerificationParams{
-		UserID:       user.ID,
-		Otp:          sql.NullString{String: userOtp.Otp, Valid: true},
-		OtpExpiresAt: sql.NullTime{Time: userOtp.OtpExpiresAt, Valid: true},
-		OtpAttempts:  sql.NullInt32{Int32: int32(userOtp.OtpAttempts), Valid: true},
-		OtpVerified:  sql.NullBool{Bool: userOtp.OTPVerified, Valid: true},
-	})
+	if userOtp.OTPVerified {
+		err = r.store.MarkEmailVerified(ctx, user.ID)
+	} else {
+		err = r.store.IncrementOTPAttempts(ctx, user.ID)
+	}
 
 	if err != nil {
 		return err

@@ -2,7 +2,6 @@ package propertyhandler
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
 
 	pb "github.com/demola234/property/infrastructure/api/grpc"
@@ -10,7 +9,7 @@ import (
 	"github.com/demola234/property/internal/usecases"
 
 	"github.com/google/uuid"
-	"github.com/sqlc-dev/pqtype"
+	"google.golang.org/genproto/googleapis/type/decimal"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -24,7 +23,6 @@ func NewPropertyHandler(propertyUsecase usecases.PropertyUsecase) *PropertyHandl
 	return &PropertyHandler{
 		propertyUsecase: propertyUsecase,
 	}
-
 }
 
 func (p *PropertyHandler) CreateProperty(ctx context.Context, req *pb.CreatePropertyRequest) (*pb.CreatePropertyResponse, error) {
@@ -33,83 +31,40 @@ func (p *PropertyHandler) CreateProperty(ctx context.Context, req *pb.CreateProp
 		return nil, status.Errorf(400, "Invalid user ID")
 	}
 
-	// Implement the CreateProperty method
+	desc := req.GetDescription()
+	zip := req.GetZipCode()
+	priceStr := strconv.FormatFloat(req.GetPrice(), 'f', -1, 64)
+	ownerID := userID
+
 	property := &entity.Property{
-		Title:         req.GetTitle(),
-		Description:   req.GetDescription(),
-		Price:         strconv.FormatFloat(req.GetPrice(), 'f', -1, 64),
-		Type:          req.GetType(),
-		Address:       req.GetAddress(),
-		ZipCode:       req.GetZipCode(),
-		Images:        req.GetImages(),
-		NoOfBedRooms:  strconv.Itoa(int(req.NoOfBedrooms)),
-		NoOfBathRooms: strconv.Itoa(int(req.NoOfBedrooms)),
-		NoOfToilets:   strconv.Itoa(int(req.NoOfToilets)),
-		GeoLocation: pqtype.NullRawMessage{
-			RawMessage: json.RawMessage(req.GetGeoLocation()),
-			Valid:      true,
-		},
-		OwnerID: uuid.NullUUID{UUID: userID, Valid: true},
-		Status:  req.GetStatus(),
+		Title:       req.GetTitle(),
+		Description: &desc,
+		Price:       decimal.Decimal{Value: priceStr},
+		Type:        entity.PropertyType(req.GetType()),
+		Address:     req.GetAddress(),
+		ZipCode:     &zip,
+		OwnerID:     &ownerID,
+		Status:      entity.PropertyStatus(req.GetStatus()),
 	}
 
-	p.propertyUsecase.CreateProperty(ctx, property)
+	if err := p.propertyUsecase.CreateProperty(ctx, property); err != nil {
+		return nil, status.Errorf(500, "Unable to create property: %v", err)
+	}
 
-	propertyResponse := &pb.CreatePropertyResponse{
+	return &pb.CreatePropertyResponse{
 		Id: property.ID.String(),
-	}
-
-	return propertyResponse, nil
+	}, nil
 }
 
 func (p *PropertyHandler) GetProperties(ctx context.Context, req *pb.GetPropertiesRequest) (*pb.GetPropertiesResponse, error) {
-	// Implement the GetProperties method
-
 	properties, err := p.propertyUsecase.GetProperties(ctx, req.GetLimit(), req.GetOffset())
 	if err != nil {
-		return nil, status.Errorf(401, "invalid credentials %d", err)
+		return nil, status.Errorf(500, "Unable to get properties: %v", err)
 	}
 
 	propertyResponses := make([]*pb.Property, len(properties))
 	for i, property := range properties {
-		price, err := strconv.ParseFloat(property.Price, 64)
-		if err != nil {
-			return nil, status.Errorf(500, "Unable to parse price: %v", err)
-		}
-
-		noOfBedRooms, err := strconv.Atoi(property.NoOfBedRooms)
-		if err != nil {
-			return nil, status.Errorf(500, "Unable to parse no of bedrooms: %v", err)
-		}
-
-		noOfBathRooms, err := strconv.Atoi(property.NoOfBathRooms)
-		if err != nil {
-			return nil, status.Errorf(500, "Unable to parse no of bathrooms: %v", err)
-		}
-
-		noOfToilets, err := strconv.Atoi(property.NoOfToilets)
-		if err != nil {
-			return nil, status.Errorf(500, "Unable to parse no of toilets: %v", err)
-		}
-
-		propertyResponses[i] = &pb.Property{
-			Id:            property.ID.String(),
-			Title:         property.Title,
-			Description:   property.Description,
-			Price:         price,
-			Type:          property.Type,
-			Address:       property.Address,
-			ZipCode:       property.ZipCode,
-			Images:        property.Images,
-			OwnerId:       property.OwnerID.UUID.String(),
-			NoOfBedrooms:  int32(noOfBedRooms),
-			NoOfBathrooms: int32(noOfBathRooms),
-			NoOfToilets:   int32(noOfToilets),
-			GeoLocation:   string(property.GeoLocation.RawMessage),
-			Status:        property.Status,
-			CreatedAt:     timestamppb.New(property.CreatedAt),
-			UpdatedAt:     timestamppb.New(property.UpdatedAt),
-		}
+		propertyResponses[i] = mapEntityToProto(property)
 	}
 
 	return &pb.GetPropertiesResponse{
@@ -118,58 +73,19 @@ func (p *PropertyHandler) GetProperties(ctx context.Context, req *pb.GetProperti
 }
 
 func (p *PropertyHandler) GetPropertiesByOwner(ctx context.Context, req *pb.GetPropertiesByOwnerRequest) (*pb.GetPropertiesByOwnerResponse, error) {
-	// Implement the GetProperties method
-	// Parse req.OwnerId() to uuuid.UUID
 	uuidUser, err := uuid.Parse(req.GetOwnerId())
 	if err != nil {
-		return nil, status.Errorf(401, "invalid credentials %d", err)
+		return nil, status.Errorf(400, "invalid owner ID: %v", err)
 	}
 
 	properties, err := p.propertyUsecase.GetPropertiesByOwner(ctx, uuid.NullUUID{UUID: uuidUser, Valid: true}, req.GetLimit(), req.GetOffset())
 	if err != nil {
-		return nil, status.Errorf(401, "invalid credentials %d", err)
+		return nil, status.Errorf(500, "Unable to get properties: %v", err)
 	}
 
 	propertyResponses := make([]*pb.Property, len(properties))
 	for i, property := range properties {
-		price, err := strconv.ParseFloat(property.Price, 64)
-		if err != nil {
-			return nil, status.Errorf(500, "Unable to parse price: %v", err)
-		}
-
-		noOfBedRooms, err := strconv.Atoi(property.NoOfBedRooms)
-		if err != nil {
-			return nil, status.Errorf(500, "Unable to parse no of bedrooms: %v", err)
-		}
-
-		noOfBathRooms, err := strconv.Atoi(property.NoOfBathRooms)
-		if err != nil {
-			return nil, status.Errorf(500, "Unable to parse no of bathrooms: %v", err)
-		}
-
-		noOfToilets, err := strconv.Atoi(property.NoOfToilets)
-		if err != nil {
-			return nil, status.Errorf(500, "Unable to parse no of toilets: %v", err)
-		}
-
-		propertyResponses[i] = &pb.Property{
-			Id:            property.ID.String(),
-			Title:         property.Title,
-			Description:   property.Description,
-			Price:         price,
-			Type:          property.Type,
-			Address:       property.Address,
-			ZipCode:       property.ZipCode,
-			Images:        property.Images,
-			OwnerId:       property.OwnerID.UUID.String(),
-			NoOfBedrooms:  int32(noOfBedRooms),
-			NoOfBathrooms: int32(noOfBathRooms),
-			NoOfToilets:   int32(noOfToilets),
-			GeoLocation:   string(property.GeoLocation.RawMessage),
-			Status:        property.Status,
-			CreatedAt:     timestamppb.New(property.CreatedAt),
-			UpdatedAt:     timestamppb.New(property.UpdatedAt),
-		}
+		propertyResponses[i] = mapEntityToProto(property)
 	}
 
 	return &pb.GetPropertiesByOwnerResponse{
@@ -178,130 +94,112 @@ func (p *PropertyHandler) GetPropertiesByOwner(ctx context.Context, req *pb.GetP
 }
 
 func (p *PropertyHandler) GetPropertyByID(ctx context.Context, req *pb.GetPropertyByIDRequest) (*pb.GetPropertyByIDResponse, error) {
-	// Implement the GetPropertyByID method
 	uuidProperty, err := uuid.Parse(req.GetId())
 	if err != nil {
-		return nil, status.Errorf(401, "invalid credentials %d", err)
+		return nil, status.Errorf(400, "invalid property ID: %v", err)
 	}
+
 	property, err := p.propertyUsecase.GetPropertyByID(ctx, uuidProperty)
 	if err != nil {
 		return nil, status.Errorf(500, "Unable to get property: %v", err)
 	}
 
-	price, err := strconv.ParseFloat(property.Price, 64)
-	if err != nil {
-		return nil, status.Errorf(500, "Unable to parse price: %v", err)
-	}
-
-	noOfBedRooms, err := strconv.Atoi(property.NoOfBedRooms)
-	if err != nil {
-		return nil, status.Errorf(500, "Unable to parse no of bedrooms: %v", err)
-	}
-
-	noOfBathRooms, err := strconv.Atoi(property.NoOfBathRooms)
-	if err != nil {
-		return nil, status.Errorf(500, "Unable to parse no of bathrooms: %v", err)
-	}
-
-	noOfToilets, err := strconv.Atoi(property.NoOfToilets)
-	if err != nil {
-		return nil, status.Errorf(500, "Unable to parse no of toilets: %v", err)
-	}
-
-	propertyResponse := &pb.Property{
-		Id:            property.ID.String(),
-		Title:         property.Title,
-		Description:   property.Description,
-		Price:         price,
-		Type:          property.Type,
-		Address:       property.Address,
-		ZipCode:       property.ZipCode,
-		Images:        property.Images,
-		OwnerId:       property.OwnerID.UUID.String(),
-		NoOfBedrooms:  int32(noOfBedRooms),
-		NoOfBathrooms: int32(noOfBathRooms),
-		NoOfToilets:   int32(noOfToilets),
-		GeoLocation:   string(property.GeoLocation.RawMessage),
-		Status:        property.Status,
-		CreatedAt:     timestamppb.New(property.CreatedAt),
-		UpdatedAt:     timestamppb.New(property.UpdatedAt),
-	}
-
 	return &pb.GetPropertyByIDResponse{
-		Property: propertyResponse,
+		Property: mapEntityToProto(property),
 	}, nil
-
 }
 
 func (p *PropertyHandler) UpdateProperty(ctx context.Context, req *pb.UpdatePropertyRequest) (*pb.UpdatePropertyResponse, error) {
-	// Implement the UpdateProperty method
 	uuidProperty, err := uuid.Parse(req.GetId())
 	if err != nil {
-		return nil, status.Errorf(401, "invalid credentials %d", err)
+		return nil, status.Errorf(400, "invalid property ID: %v", err)
 	}
 
-	// Get property by id
-	UserProperty, err := p.propertyUsecase.GetPropertyByID(ctx, uuidProperty)
+	userProperty, err := p.propertyUsecase.GetPropertyByID(ctx, uuidProperty)
 	if err != nil {
 		return nil, status.Errorf(500, "Unable to get property: %v", err)
 	}
 
-	// Allow only owner to update property
-	if UserProperty.OwnerID.UUID.String() != req.GetOwnerId() {
-		return nil, status.Errorf(401, "You are not authorized to update this property")
+	if userProperty.OwnerID == nil || userProperty.OwnerID.String() != req.GetOwnerId() {
+		return nil, status.Errorf(403, "You are not authorized to update this property")
 	}
+
+	desc := req.GetDescription()
+	zip := req.GetZipCode()
+	priceStr := strconv.FormatFloat(req.GetPrice(), 'f', -1, 64)
 
 	property := &entity.Property{
-		ID:            uuidProperty,
-		Title:         req.GetTitle(),
-		Description:   req.GetDescription(),
-		Price:         strconv.FormatFloat(req.GetPrice(), 'f', -1, 64),
-		Type:          req.GetType(),
-		Address:       req.GetAddress(),
-		ZipCode:       req.GetZipCode(),
-		Images:        req.GetImages(),
-		NoOfBedRooms:  strconv.Itoa(int(req.NoOfBedrooms)),
-		NoOfBathRooms: strconv.Itoa(int(req.NoOfBedrooms)),
-		NoOfToilets:   strconv.Itoa(int(req.NoOfToilets)),
-		GeoLocation: pqtype.NullRawMessage{
-			RawMessage: json.RawMessage(req.GetGeoLocation()),
-			Valid:      true,
-		},
-		Status: req.GetStatus(),
+		ID:          uuidProperty,
+		Title:       req.GetTitle(),
+		Description: &desc,
+		Price:       decimal.Decimal{Value: priceStr},
+		Type:        entity.PropertyType(req.GetType()),
+		Address:     req.GetAddress(),
+		ZipCode:     &zip,
+		Status:      entity.PropertyStatus(req.GetStatus()),
 	}
 
-	err = p.propertyUsecase.UpdateProperty(ctx, property)
-	if err != nil {
+	if err := p.propertyUsecase.UpdateProperty(ctx, property); err != nil {
 		return nil, err
 	}
 
 	return &pb.UpdatePropertyResponse{}, nil
-
 }
 
 func (p *PropertyHandler) DeleteProperty(ctx context.Context, req *pb.DeletePropertyRequest) (*pb.DeletePropertyResponse, error) {
-	// Implement the DeleteProperty method
 	uuidProperty, err := uuid.Parse(req.GetId())
 	if err != nil {
-		return nil, status.Errorf(401, "invalid credentials %d", err)
+		return nil, status.Errorf(400, "invalid property ID: %v", err)
 	}
 
-	// Get property by id
-	UserProperty, err := p.propertyUsecase.GetPropertyByID(ctx, uuidProperty)
+	userProperty, err := p.propertyUsecase.GetPropertyByID(ctx, uuidProperty)
 	if err != nil {
 		return nil, status.Errorf(500, "Unable to get property: %v", err)
 	}
 
-	// Allow only owner to update property
-	if UserProperty.OwnerID.UUID.String() != req.GetOwnerId() {
-		return nil, status.Errorf(401, "You are not authorized to update this property")
+	if userProperty.OwnerID == nil || userProperty.OwnerID.String() != req.GetOwnerId() {
+		return nil, status.Errorf(403, "You are not authorized to delete this property")
 	}
 
-	err = p.propertyUsecase.DeleteProperty(ctx, uuidProperty)
-
-	if err != nil {
+	if err := p.propertyUsecase.DeleteProperty(ctx, uuidProperty); err != nil {
 		return nil, err
 	}
 
 	return &pb.DeletePropertyResponse{}, nil
+}
+
+func mapEntityToProto(property *entity.Property) *pb.Property {
+	var price float64
+	if property.Price.Value != "" {
+		price, _ = strconv.ParseFloat(property.Price.Value, 64)
+	}
+
+	var ownerID string
+	if property.OwnerID != nil {
+		ownerID = property.OwnerID.String()
+	}
+
+	var description string
+	if property.Description != nil {
+		description = *property.Description
+	}
+
+	var zipCode string
+	if property.ZipCode != nil {
+		zipCode = *property.ZipCode
+	}
+
+	return &pb.Property{
+		Id:          property.ID.String(),
+		Title:       property.Title,
+		Description: description,
+		Price:       price,
+		Type:        string(property.Type),
+		Address:     property.Address,
+		ZipCode:     zipCode,
+		OwnerId:     ownerID,
+		Status:      string(property.Status),
+		CreatedAt:   timestamppb.New(property.CreatedAt),
+		UpdatedAt:   timestamppb.New(property.UpdatedAt),
+	}
 }

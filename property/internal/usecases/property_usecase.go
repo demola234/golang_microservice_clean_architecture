@@ -35,17 +35,15 @@ func NewPropertyUsecase(propertyRepo repository.PropertyRepository, mq entity.Me
 
 // CreateProperty creates a new property in the repository.
 func (p *propertyUsecase) CreateProperty(ctx context.Context, property *entity.Property) error {
-	if err := p.propertyRepo.CreateProperty(property); err != nil {
+	if err := p.propertyRepo.Create(ctx, property); err != nil {
 		return fmt.Errorf("failed to create property: %w", err)
 	}
 
-	// Prepare the event data to publish to Kafka
 	eventData, err := json.Marshal(property)
 	if err != nil {
 		return fmt.Errorf("failed to marshal property data for event: %w", err)
 	}
 
-	// Publish the event to Kafka
 	if err := p.messageQueue.PublishMessage(ctx, []byte("property_created"), eventData); err != nil {
 		return fmt.Errorf("failed to publish property created event: %w", err)
 	}
@@ -55,11 +53,10 @@ func (p *propertyUsecase) CreateProperty(ctx context.Context, property *entity.P
 
 // DeleteProperty deletes a property from the repository.
 func (p *propertyUsecase) DeleteProperty(ctx context.Context, id uuid.UUID) error {
-	if err := p.propertyRepo.DeleteProperty(id); err != nil {
+	if err := p.propertyRepo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("failed to delete property with ID %s: %w", id, err)
 	}
 
-	// Step 2: Publish a delete event to Kafka
 	eventData, err := json.Marshal(map[string]interface{}{
 		"event": "property_deleted",
 		"id":    id.String(),
@@ -79,24 +76,24 @@ func (p *propertyUsecase) DeleteProperty(ctx context.Context, id uuid.UUID) erro
 
 // GetProperties retrieves a list of properties with pagination.
 func (p *propertyUsecase) GetProperties(ctx context.Context, limit, offset int32) ([]*entity.Property, error) {
-
-	return p.propertyRepo.GetProperties(limit, offset)
+	filter := entity.PropertySearchFilter{
+		Limit:  limit,
+		Offset: offset,
+	}
+	return p.propertyRepo.List(ctx, filter)
 }
 
 // GetPropertiesByOwner retrieves a list of properties owned by a specific owner.
 func (p *propertyUsecase) GetPropertiesByOwner(ctx context.Context, ownerID uuid.NullUUID, limit, offset int32) ([]*entity.Property, error) {
-
-	return p.propertyRepo.GetPropertiesByOwner(ownerID, limit, offset)
+	return p.propertyRepo.GetByOwner(ctx, ownerID.UUID, limit, offset)
 }
 
 // GetPropertyByID retrieves a single property by its ID.
 func (p *propertyUsecase) GetPropertyByID(ctx context.Context, id uuid.UUID) (*entity.Property, error) {
-
-	return p.propertyRepo.GetPropertyByID(id)
+	return p.propertyRepo.GetByID(ctx, id)
 }
 
 // UpdateProperty updates an existing property in the repository.
 func (p *propertyUsecase) UpdateProperty(ctx context.Context, property *entity.Property) error {
-
-	return p.propertyRepo.UpdateProperty(property)
+	return p.propertyRepo.Update(ctx, property)
 }

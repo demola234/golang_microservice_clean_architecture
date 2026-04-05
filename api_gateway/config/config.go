@@ -20,7 +20,7 @@ func LoadConfig(path string) (config Config, err error) {
 	// Set the path to look for the configuration file
 	viper.AddConfigPath(path)
 
-	viper.SetDefault("API_GATEWAY_PORT", "8080")
+	viper.SetDefault("API_GATEWAY_PORT", "8084")
 	viper.SetDefault("AUTH_GRPC_ADDRESS", "localhost:9091")
 	viper.SetDefault("PROPERTY_GRPC_ADDRESS", "localhost:9092")
 	viper.SetDefault("MESSAGING_GRPC_ADDRESS", "localhost:9093")

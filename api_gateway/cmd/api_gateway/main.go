@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -31,7 +32,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to Authentication service: %v", err)
 	}
-	defer authClient.Close() // Ensure gRPC connection is closed on shutdown
+	defer authClient.Close()
 
 	propertyClient, err := grpc_clients.NewPropertyClient(configs.PropertyGRPCAddress, 20*time.Second)
 	if err != nil {
@@ -80,10 +81,14 @@ func main() {
 		Handler: router,
 	}
 
-	// Start the server in a goroutine
+	// Start the server in a goroutine using tcp4 to ensure IPv4 binding (required for Android emulator)
+	ln, err := net.Listen("tcp4", configs.Port)
+	if err != nil {
+		log.Fatalf("Could not listen on %s: %v", configs.Port, err)
+	}
 	go func() {
 		log.Printf("Starting API Gateway at %s...", configs.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Could not start server: %v", err)
 		}
 	}()

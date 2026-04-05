@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -24,7 +25,7 @@ INSERT INTO email_verification (
     expires_at, 
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, now(), $5, now()
+    $1, $2, $3, $4, $5, $6, now(), $7, now()
 ) RETURNING id, user_id, otp_expires_at, otp, otp_attempts, otp_verified, created_at, expires_at, updated_at
 `
 
@@ -35,6 +36,7 @@ type CreateEmailVerificationParams struct {
 	OtpVerified  sql.NullBool   `json:"otp_verified"`
 	OtpAttempts  sql.NullInt32  `json:"otp_attempts"`
 	OtpExpiresAt sql.NullTime   `json:"otp_expires_at"`
+	ExpiresAt    time.Time      `json:"expires_at"`
 }
 
 func (q *Queries) CreateEmailVerification(ctx context.Context, arg CreateEmailVerificationParams) (EmailVerification, error) {
@@ -45,6 +47,7 @@ func (q *Queries) CreateEmailVerification(ctx context.Context, arg CreateEmailVe
 		arg.OtpVerified,
 		arg.OtpAttempts,
 		arg.OtpExpiresAt,
+		arg.ExpiresAt,
 	)
 	var i EmailVerification
 	err := row.Scan(

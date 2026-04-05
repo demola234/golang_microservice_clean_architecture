@@ -10,7 +10,7 @@ INSERT INTO email_verification (
     expires_at, 
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, now(), $5, now()
+    $1, $2, $3, $4, $5, $6, now(), $7, now()
 ) RETURNING *;
 
 -- name: GetEmailVerification :one

@@ -180,7 +180,7 @@ func (u *userUsecase) RegisterUser(ctx context.Context, fullName, password, emai
 		UserID:       user.ID,
 		Token:        token,
 		CreatedAt:    time.Now().UTC(),
-		ExpiresAt:    time.Now().Add(24 * time.Hour).UTC(), // Set to UTC
+		ExpiresAt:    time.Now().Add(24 * time.Hour).UTC(),
 		LastActivity: time.Now().UTC(),
 		IpAddress:    metaData.ClientIP,
 		UserAgent:    metaData.UserAgent,
@@ -412,6 +412,8 @@ func (u *userUsecase) ForgetPassword(ctx context.Context, email string) error {
 		user.Email, metaData.ClientIP, otp)
 	return nil
 }
+
+// VerifyResetPassword verifies the OTP for password rese
 // VerifyResetPassword verifies the OTP for password reset
 func (u *userUsecase) VerifyResetPassword(ctx context.Context, email string, otp string) error {
 	// Validate OTP format
